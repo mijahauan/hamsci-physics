@@ -70,8 +70,12 @@ hamsci-physics grape daily         # decimate → spectrogram → package → up
 
 ## Status
 
-The GRAPE pipeline and the reanalysis are the live products. **The L3 fusion
-service is shipped but not enabled**: it still carries HDF5-era assumptions
-(its freshness scan and channel discovery must become SQLite reads) and was
-already disabled in hf-timestd before the split. The unit file ships
-disabled rather than deleted; enable it when that port lands.
+All three products are live. The L3 fusion service runs continuously —
+on AC0G/B4 it writes about 14 carrier-phase dTEC records a minute, plus
+differential dTEC across WWV, WWVH and BPM, anchored to GNSS VTEC.
+
+One known wart, inherited from the HDF5→SQLite migration: the service's
+upstream-freshness check and channel discovery still read the old
+file-tree layout. Neither gates the science (the freshness result is
+advisory — the loop continues either way), but a permanently "stale"
+health signal is a metric that lies, so both are being moved to DB reads.

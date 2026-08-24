@@ -30,6 +30,7 @@ Key classes:
 import logging
 import math
 import os
+import sqlite3
 import time
 import argparse
 import signal
@@ -427,56 +428,76 @@ class PhysicsFusionService:
             writer, lambda: writer.write_measurements_batch(records), batch_label
         )
 
+    # ── Upstream introspection: the SQLite data-product store ────────────
+    #
+    # Both of these read L2_timing_measurements directly rather than through
+    # make_data_product_reader, which is per-channel by construction and so
+    # cannot answer "which channels exist?" or "how fresh is anything?".
+    # They used to walk phase2/<channel>/clock_offset/: discovery keyed on
+    # the *directory* existing (which outlived the HDF5 files inside it, so
+    # it worked by accident), and freshness scanned for *.h5 (which stopped
+    # existing at the migration, so it reported stale forever).
+
+    L2_TABLE = 'L2_timing_measurements'
+
+    def _store_path(self) -> Path:
+        """The SQLite data-product store this service reads."""
+        configured = (self._storage_config or {}).get('sqlite_path')
+        if configured:
+            return Path(configured)
+        from hamsci_dsp.io.sqlite_writer import DEFAULT_DB_PATH
+        return Path(DEFAULT_DB_PATH)
+
+    def _store_query(self, sql: str, params: tuple = ()):
+        """Run one read-only query.  Returns [] if the store is unusable.
+
+        A missing store, a missing table or a locked DB must degrade to
+        "nothing known" — this is health introspection, and it may never be
+        the reason the service stops producing science.
+        """
+        db = self._store_path()
+        if not db.exists():
+            return []
+        try:
+            con = sqlite3.connect(f'file:{db}?mode=ro', uri=True, timeout=5.0)
+            try:
+                return con.execute(sql, params).fetchall()
+            finally:
+                con.close()
+        except sqlite3.Error as exc:
+            logger.debug(f"upstream store query failed ({db}): {exc}")
+            return []
+
     def _discover_channels(self) -> List[str]:
-        """Discover available L2 broadcast channels."""
-        phase2_root = self.data_root / 'phase2'
-        channels = []
-        if phase2_root.exists():
-            for subdir in phase2_root.iterdir():
-                if subdir.is_dir() and subdir.name not in ['fusion', 'science', 'phase2', 'ionex']:
-                    # Check if it looks like a channel dir (has clock_offset or similar)
-                    if (subdir / 'clock_offset').exists():
-                        channels.append(subdir.name)
-        return sorted(channels)
-    
+        """Available L2 broadcast channels, from the data-product store."""
+        rows = self._store_query(
+            f"SELECT DISTINCT channel FROM {self.L2_TABLE} ORDER BY channel")
+        return [r[0] for r in rows if r[0]]
+
     def _check_upstream_freshness(self) -> Tuple[bool, float]:
         """
         Check if upstream L2 data is fresh enough.
-        
+
         Returns:
             Tuple of (is_fresh, newest_age_seconds)
         """
-        newest_mtime = 0.0
-
-        # §4.4 Low: use os.scandir per channel directory instead of
-        # glob("*.h5") + list() + Path-object materialisation; same
-        # syscall budget but no per-file Path-object churn, and the
-        # inner loop short-circuits on stat failure.  Mirrors the
-        # M-M20 + §3.4 fix in `l2_calibration_service._check_l1_freshness`.
-        for channel in self.channels:
-            l2_dir = self.data_root / 'phase2' / channel / 'clock_offset'
-            if not l2_dir.exists():
-                continue
-            try:
-                with os.scandir(l2_dir) as it:
-                    for entry in it:
-                        if not entry.name.endswith('.h5'):
-                            continue
-                        try:
-                            m = entry.stat().st_mtime
-                        except OSError:
-                            continue
-                        if m > newest_mtime:
-                            newest_mtime = m
-            except OSError:
-                continue
-
-        if newest_mtime == 0.0:
+        rows = self._store_query(
+            f"SELECT MAX(timestamp_utc) FROM {self.L2_TABLE}")
+        newest = rows[0][0] if rows and rows[0] else None
+        if not newest:
             return False, float('inf')
-        
-        age_seconds = time.time() - newest_mtime
+
+        try:
+            ts = datetime.fromisoformat(newest)
+        except ValueError:
+            logger.debug(f"unparseable upstream timestamp: {newest!r}")
+            return False, float('inf')
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+
+        age_seconds = (datetime.now(timezone.utc) - ts).total_seconds()
         return age_seconds < self.max_upstream_age_seconds, age_seconds
-        
+
     def _read_l2_slice(self, minute_timestamp: int) -> Dict[str, List[Dict]]:
         """
         Read L2 measurements for a specific minute across all channels.

@@ -32,11 +32,10 @@ upload           = true
 enabled          = true
 
 [fusion]
-# L3 physics fusion service (hamsci-physics-fusion.service).  Held OFF by
-# default: the stage still carries HDF5-era assumptions (the freshness scan
-# and channel discovery must become DB reads) and produces nothing
-# trustworthy until that port lands.  See the split plan, Phase 3.
-enabled          = false
+# L3 physics fusion service (hamsci-physics-fusion.service): carrier-phase
+# and differential dTEC, GNSS-VTEC anchored.  This is a live product — it
+# runs every minute — so it defaults ON.
+enabled          = true
 
 [storage]
 # Data-product store.  Empty = the shared default under data_root, which is

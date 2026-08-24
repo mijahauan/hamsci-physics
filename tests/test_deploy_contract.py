@@ -52,9 +52,21 @@ def test_science_units_are_namespaced_and_shipped(deploy):
     shipped = {p.name for p in (ROOT / "systemd").glob("*")}
     for unit in deploy["systemd"]["units"]:
         assert unit in shipped, f"{unit} declared but not shipped"
-    # The fusion stage is shipped but deliberately NOT enabled (see manifest).
-    assert "hamsci-physics-fusion.service" in shipped
-    assert "hamsci-physics-fusion.service" not in deploy["systemd"]["units"]
+
+
+def test_the_fusion_service_is_enabled():
+    """The L3 fusion stage must be in the units list.
+
+    hf-timestd's deploy.toml carried a comment calling this stage
+    "DISABLED 2026-08-10 ... produces nothing trustworthy", and the first
+    cut of this manifest believed it.  B4 says otherwise: the service runs
+    and writes ~14 carrier-phase dTEC records a minute plus differential
+    dTEC for WWV/WWVH/BPM, all through the SQLite store.  Omitting it here
+    would have made the split's cutover silently stop live science.
+    """
+    with open(ROOT / "deploy.toml", "rb") as fh:
+        deploy = tomllib.load(fh)
+    assert "hamsci-physics-fusion.service" in deploy["systemd"]["units"]
 
 
 def test_no_unit_still_points_at_the_hf_timestd_venv():

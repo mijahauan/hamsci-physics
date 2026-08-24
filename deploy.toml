@@ -62,15 +62,17 @@ run  = "install -d -o timestd -g timestd -m 0755 /var/lib/timestd/phase2/fusion 
 # know it, and renaming it would break every runbook for no gain.  The
 # service units take the hamsci-physics- prefix.
 #
-# hamsci-physics-fusion.service stays OUT of this list, exactly as
-# timestd-physics.service did in hf-timestd: the L3 fusion stage is held
-# until its remaining HDF5 assumptions are ported (the two `_discover_channels`
-# / freshness-scan items in the split plan).  Unit file shipped
-# (disable-not-delete); add the line when the port lands.
+# hamsci-physics-fusion.service IS enabled.  hf-timestd's manifest carried a
+# comment calling the stage "DISABLED 2026-08-10 ... produces nothing
+# trustworthy", but the running system disagrees: on B4 it writes ~14
+# carrier-phase dTEC records a minute plus differential dTEC for WWV/WWVH/BPM,
+# reading and writing the SQLite store.  Leaving it out of this list would
+# have made the cutover silently stop live science.
 # ---------------------------------------------------------------------------
 
 [systemd]
 units = [
+    "hamsci-physics-fusion.service",
     "grape-daily.timer",
     "hamsci-physics-reanalysis.timer",
     "hamsci-physics-ionex-download.timer",
