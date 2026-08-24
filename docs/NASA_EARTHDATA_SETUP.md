@@ -62,7 +62,7 @@ After creating the credential file, restart the affected services:
 
 ```bash
 sudo systemctl restart timestd-vtec
-sudo systemctl start timestd-ionex-download
+sudo systemctl start hamsci-physics-ionex-download
 ```
 
 Check the logs:

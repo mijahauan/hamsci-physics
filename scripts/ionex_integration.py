@@ -44,7 +44,7 @@ import logging
 
 # IONEXParser is owned by the package (P-H18); re-exported here so the
 # standalone ionex_* scripts keep importing it from ionex_integration.
-from hamsci_physics.core.ionex_parser import IONEXParser  # noqa: F401
+from hamsci_dsp.ionosphere.ionex import IONEXParser  # noqa: F401
 
 try:
     from hamsci_physics.cddis_auth import get_cddis_session, check_earthdata_credentials

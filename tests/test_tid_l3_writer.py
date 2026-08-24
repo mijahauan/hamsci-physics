@@ -202,3 +202,66 @@ class TestTidWriterReaderRoundtrip(unittest.TestCase):
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
+
+
+# ---------------------------------------------------------------------
+# PhysicsFusionService TID cycle (happy path: no detection on empty)
+# ---------------------------------------------------------------------
+
+class TestPhysicsFusionTidCycle(unittest.TestCase):
+    def test_run_tid_detection_cycle_does_not_crash_on_empty_data(self):
+        """The cycle is best-effort science; an empty station_data
+        must not raise."""
+        from hamsci_physics.physics_fusion_service import PhysicsFusionService
+
+        with tempfile.TemporaryDirectory() as td_str:
+            td = Path(td_str)
+            # Construct the service without actually running it.
+            svc = PhysicsFusionService.__new__(PhysicsFusionService)
+            # Minimal init: only the bits _run_tid_detection_cycle uses.
+            from hamsci_physics.tid_detector import TIDDetector
+            from hamsci_dsp.io import make_data_product_writer
+
+            svc.receiver_lat = 40.0
+            svc.receiver_lon = -105.0
+            svc.tid_detector = TIDDetector(
+                receiver_lat=40.0, receiver_lon=-105.0,
+                buffer_minutes=120, sample_interval_seconds=60.0,
+            )
+            tid_dir = td / 'fusion' / 'tid'
+            tid_dir.mkdir(parents=True)
+            svc.tid_writer = make_data_product_writer(
+                output_dir=tid_dir,
+                product_level='L3',
+                product_name='tid',
+                channel='AGGREGATED',
+                processing_version='1.0.0',
+                storage_config={'sqlite_path': str(td / 'timestd.db')},
+            )
+
+            # Empty -- detector should return None and the cycle return
+            # without raising.
+            svc._run_tid_detection_cycle(
+                minute_timestamp=int(datetime.now(timezone.utc).timestamp()),
+                station_data={},
+            )
+
+            # A few minutes of synthetic data with no real disturbance:
+            # detect_tid still returns None (no significant correlation).
+            # Just verify add_residual ran cleanly.
+            for minute_offset in range(5):
+                ts = int(datetime.now(timezone.utc).timestamp()) + 60 * minute_offset
+                svc._run_tid_detection_cycle(
+                    minute_timestamp=ts,
+                    station_data={
+                        'WWV': [{
+                            'frequency_hz': 10_000_000,
+                            'toa_ms': 0.1 * minute_offset,
+                            'uncertainty_ms': 1.0,
+                            'snr_db': 20.0,
+                            'mode': '1F',
+                        }],
+                    },
+                )
+
+            svc.tid_writer.close()
