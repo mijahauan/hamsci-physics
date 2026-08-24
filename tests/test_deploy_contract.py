@@ -84,3 +84,27 @@ def test_config_template_matches_the_frozen_data_root():
     assert cfg["paths"]["data_root"] == "/var/lib/timestd"
     assert set(cfg["station"]) >= {
         "callsign", "grid_square", "psws_station_id", "instrument_id"}
+
+
+def test_watchdog_units_have_the_binding_that_feeds_them():
+    """A unit with WatchdogSec needs sd_notify, which needs systemd-python.
+
+    Shipping the unit without the dependency means systemd kills the
+    service every WatchdogSec — seen on the first AC0G-B4 deployment,
+    where the fusion service was killed every 120 s and never committed a
+    minute's dTEC.
+    """
+    import tomllib
+
+    watchdog_units = [
+        u.name for u in (ROOT / "systemd").glob("*.service")
+        if "WatchdogSec=" in u.read_text()
+    ]
+    if not watchdog_units:
+        pytest.skip("no unit uses the systemd watchdog")
+
+    with open(ROOT / "pyproject.toml", "rb") as fh:
+        deps = tomllib.load(fh)["project"]["dependencies"]
+    assert any(d.startswith("systemd-python") for d in deps), (
+        f"{watchdog_units} use WatchdogSec but systemd-python is not a "
+        f"dependency — systemd will kill them on schedule")

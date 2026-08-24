@@ -29,6 +29,11 @@ dependencies = [
     "matplotlib>=3.7.0",     # spectrogram rendering
     "toml>=0.10.0",
     "zstandard>=0.22.0",     # raw_buffer chunks are .bin.zst
+    # hamsci-physics-fusion.service runs with WatchdogSec=120 and pets it via
+    # sd_notify.  Without this binding the service cannot signal liveness and
+    # systemd kills it every two minutes — which is exactly what happened on
+    # the first AC0G-B4 deployment (NRestarts climbing, dTEC never committing).
+    "systemd-python>=235",
 ]
 
 [project.optional-dependencies]
