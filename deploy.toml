@@ -28,10 +28,18 @@ edit = "scripts/config-review.sh"
 # Build phase: a venv at /opt/git/sigmond/hamsci-physics/venv.
 # ---------------------------------------------------------------------------
 
+# hamsci-dsp and hs-uploader are NOT on PyPI: they are sibling checkouts,
+# installed editable so a `git pull` of either propagates without a
+# reinstall.  They must go in BEFORE this package, or pip resolves
+# "hamsci-dsp>=0.5.0" against an index that does not have it and the build
+# fails.  The interpreter is the fleet's uv-managed CPython 3.11, matching
+# every other client venv (digital_rf / h5py wheels are built for it).
 [build]
 steps = [
-    "python3 -m venv /opt/git/sigmond/hamsci-physics/venv",
+    "/opt/uv/python/cpython-3.11.15-linux-x86_64-gnu/bin/python3.11 -m venv /opt/git/sigmond/hamsci-physics/venv",
     "/opt/git/sigmond/hamsci-physics/venv/bin/pip install --upgrade pip setuptools wheel",
+    "/opt/git/sigmond/hamsci-physics/venv/bin/pip install -e /opt/git/sigmond/hamsci-dsp",
+    "/opt/git/sigmond/hamsci-physics/venv/bin/pip install -e /opt/git/sigmond/hs-uploader",
     "/opt/git/sigmond/hamsci-physics/venv/bin/pip install -e .",
 ]
 

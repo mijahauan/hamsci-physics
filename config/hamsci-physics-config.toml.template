@@ -38,6 +38,7 @@ enabled          = true
 enabled          = true
 
 [storage]
-# Data-product store.  Empty = the shared default under data_root, which is
-# what the timing core writes and what every reader expects.
-sqlite_path      = ""
+# Data-product store.  Leave COMMENTED to use the shared default under
+# data_root — which is what the timing core writes and every reader expects.
+# Set it only to point at a non-default store.
+# sqlite_path    = "/var/lib/timestd/phase2/timestd.db"
