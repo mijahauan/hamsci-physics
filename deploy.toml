@@ -1,0 +1,131 @@
+# hamsci-physics deploy manifest — declares how this client gets from repo
+# source to its production location.  Conforms to the HamSCI client contract
+# (sigmond/docs/CLIENT-CONTRACT.md).
+#
+# hamsci-physics is the science half of the 2026-08-24 hf-timestd split: it
+# reads the timing core's data products under /var/lib/timestd (a frozen
+# contract of the split — the data root does NOT move) and writes the
+# ionospheric products and the GRAPE/PSWS daily datasets.
+
+[package]
+name             = "hamsci-physics"
+version          = "0.1.0"
+description      = "Ionospheric science products (TEC/dTEC, TID, GRAPE) from HF time-standard observations"
+contract_version = "0.8"
+license          = "MIT"
+
+# ---------------------------------------------------------------------------
+# Configuration interview (CONTRACT §14).  `smd config init|edit
+# hamsci-physics` invokes these; they honour the §14.3 env bag (STATION_*)
+# so a host that already configured hf-timestd answers nothing twice.
+# ---------------------------------------------------------------------------
+
+[contract.config]
+init = "scripts/setup-station.sh"
+edit = "scripts/config-review.sh"
+
+# ---------------------------------------------------------------------------
+# Build phase: a venv at /opt/git/sigmond/hamsci-physics/venv.
+# ---------------------------------------------------------------------------
+
+[build]
+steps = [
+    "python3 -m venv /opt/git/sigmond/hamsci-physics/venv",
+    "/opt/git/sigmond/hamsci-physics/venv/bin/pip install --upgrade pip setuptools wheel",
+    "/opt/git/sigmond/hamsci-physics/venv/bin/pip install -e .",
+]
+
+# ---------------------------------------------------------------------------
+# Install phase.
+# ---------------------------------------------------------------------------
+
+[install]
+# Runs as the same service user as the timing core: the science products land
+# inside /var/lib/timestd, which hf-timestd owns.
+user  = "timestd"
+group = "timestd"
+
+[[install.steps]]
+name = "config directory"
+run  = "install -d -m 0755 /etc/hamsci-physics"
+
+[[install.steps]]
+name = "config template"
+run  = "test -f /etc/hamsci-physics/config.toml || install -m 0644 config/hamsci-physics-config.toml.template /etc/hamsci-physics/config.toml"
+
+[[install.steps]]
+name = "science output directories"
+run  = "install -d -o timestd -g timestd -m 0755 /var/lib/timestd/phase2/fusion /var/lib/timestd/phase2/science"
+
+# ---------------------------------------------------------------------------
+# Units.  The `grape-daily` timer KEEPS its name across the split: operators
+# know it, and renaming it would break every runbook for no gain.  The
+# service units take the hamsci-physics- prefix.
+#
+# hamsci-physics-fusion.service stays OUT of this list, exactly as
+# timestd-physics.service did in hf-timestd: the L3 fusion stage is held
+# until its remaining HDF5 assumptions are ported (the two `_discover_channels`
+# / freshness-scan items in the split plan).  Unit file shipped
+# (disable-not-delete); add the line when the port lands.
+# ---------------------------------------------------------------------------
+
+[systemd]
+units = [
+    "grape-daily.timer",
+    "hamsci-physics-reanalysis.timer",
+    "hamsci-physics-ionex-download.timer",
+    # grape-upload-retry.timer — RETIRED 2026-06-30 (single-host uploader):
+    # hs-uploader.service owns GRAPE upload retries.  Unit files retained
+    # (disable-not-delete); re-add only if a host reverts to in-process upload.
+]
+
+# ---------------------------------------------------------------------------
+# Dependencies.
+# ---------------------------------------------------------------------------
+
+[deps]
+
+[[deps.git]]
+name = "hf-timestd"
+why  = "produces the raw_buffer + L2 data products this client reads"
+
+[[deps.system]]
+name = "gfortran"
+why  = "iri2020 compiles Fortran on first use (reanalysis profiles)"
+
+[[deps.system]]
+name = "build-essential"
+why  = "same as gfortran — IRI/pyLAP builds"
+
+# ---------------------------------------------------------------------------
+# Single-host uploader pipeline.  MOVED VERBATIM from hf-timestd's
+# deploy.toml in the split — the transport `name` and source `source_id` are
+# PINNED: they are the watermark keys the running daemon uses for the grape
+# cursor.  Changing them would re-scan the KEEP-retention spool and re-ship
+# every already-shipped OBS* dataset.
+#
+# This block must exist in exactly ONE repo's deploy.toml.  It was removed
+# from hf-timestd in the same commit that added it here.
+# ---------------------------------------------------------------------------
+
+# GRAPE Digital RF datasets -> PSWS (daily)
+[[hs_uploader.pipeline]]
+name = "grape-psws"
+max_records_per_pump = 64
+[hs_uploader.pipeline.source]
+type = "filetree"
+root = "/var/lib/timestd/upload"
+patterns = ["OBS*"]
+retention = "keep"
+match_dirs = true
+table = "grape.dataset"
+source_id = "grape-datasets:/var/lib/timestd/upload"
+[hs_uploader.pipeline.transport]
+type = "psws_dataset"
+instrument_id = "{instrument_id}"
+host = "pswsnetwork.eng.ua.edu"
+table = "grape.dataset"
+sftp_user = "{station_id}"
+name = "psws-grape-sftp:pswsnetwork.eng.ua.edu:{station_id}"
+[hs_uploader.pipeline.identity]
+station_id = "{station_id}"

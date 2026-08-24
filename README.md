@@ -1,0 +1,77 @@
+# hamsci-physics
+
+Ionospheric science products derived from HF time-standard observations —
+the science half of the 2026-08-24 `hf-timestd` split.
+
+`hf-timestd` keeps the real-time timing core: RTP→UTC sample labelling, the
+broadcast fusion that produces `D_clock`, and the chrony feed. Everything
+that turns those labelled observations into *ionospheric* products lives
+here:
+
+| Product | Module | Unit |
+|---|---|---|
+| L3 TEC / dTEC fusion | `physics_fusion_service` | `hamsci-physics-fusion.service` (held — see below) |
+| Daily reanalysis of arrivals | `ionospheric_reanalysis` | `hamsci-physics-reanalysis.timer` |
+| Travelling ionospheric disturbances | `tid_detector` | (in-process, fusion) |
+| Per-path propagation statistics | `propagation_stats` | (in-process, reanalysis) |
+| GRAPE / PSWS daily datasets | `grape/` | `grape-daily.timer` |
+| IONEX / IRI / space-weather inputs | `cddis`, `scripts/` | `hamsci-physics-ionex-download.timer`, `…-iri-update.timer` |
+
+## Where the boundary is
+
+Three rules define the split, and the test suite pins all three:
+
+1. **hamsci-physics never imports `hf_timestd`** (`tests/test_import_lint.py`).
+   Shared engines — TEC solvers, propagation models, the ionosphere stack,
+   the io/schema data layer — come from
+   [`hamsci-dsp`](https://github.com/HamSCI/hamsci-dsp), which both repos
+   depend on.
+2. **The data root does not move.** `/var/lib/timestd` is a frozen contract:
+   this client reads the timing core's products *in place* (`raw_buffer/`,
+   `phase2/`) and writes its own under `phase2/fusion`, `phase2/science` and
+   `upload/`. Only the *config* moved, to `/etc/hamsci-physics/config.toml`.
+3. **The GRAPE upload pipeline moved verbatim.** Its `source_id`
+   (`grape-datasets:/var/lib/timestd/upload`) and transport name are
+   hs-uploader watermark keys over a keep-retention spool; changing them
+   would re-ship every dataset PSWS already has
+   (`tests/test_deploy_contract.py`).
+
+## Install
+
+Through sigmond, like any other client:
+
+```bash
+smd install hamsci-physics
+smd config init hamsci-physics     # fills [station] from the station identity
+smd start hamsci-physics
+```
+
+`deploy.toml` is the manifest sigmond reads. hf-timestd must be installed on
+the same host — it produces what this client consumes.
+
+## Development
+
+```bash
+uv sync --extra dev
+uv run pytest tests/            # ~210 tests
+```
+
+`hamsci-dsp` and `hs-uploader` are editable siblings (`[tool.uv.sources]`),
+so a `git pull` of either propagates without a reinstall.
+
+## Contract surface
+
+```bash
+hamsci-physics version --json
+hamsci-physics inventory --json    # what this client is and writes
+hamsci-physics validate --json     # exit 1 on any fail-severity issue
+hamsci-physics grape daily         # decimate → spectrogram → package → upload
+```
+
+## Status
+
+The GRAPE pipeline and the reanalysis are the live products. **The L3 fusion
+service is shipped but not enabled**: it still carries HDF5-era assumptions
+(its freshness scan and channel discovery must become SQLite reads) and was
+already disabled in hf-timestd before the split. The unit file ships
+disabled rather than deleted; enable it when that port lands.

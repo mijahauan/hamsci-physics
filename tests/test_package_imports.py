@@ -1,0 +1,51 @@
+"""Every moved module must import cleanly in the new namespace.
+
+The split rewrote hf_timestd.* imports to hamsci_dsp.* / hamsci_physics.*
+mechanically; this is the check that the rewrite produced a package that
+actually loads, rather than one that only looks right in a diff.
+"""
+from __future__ import annotations
+
+import importlib
+
+import pytest
+
+MODULES = [
+    "hamsci_physics",
+    "hamsci_physics.constants",
+    "hamsci_physics.solar_zenith",
+    "hamsci_physics.tid_detector",
+    "hamsci_physics.propagation_stats",
+    "hamsci_physics.physics_fusion_service",
+    "hamsci_physics.ionospheric_reanalysis",
+    "hamsci_physics.grape.decimated_buffer",
+    "hamsci_physics.grape.decimation",
+    "hamsci_physics.grape.decimation_pipeline",
+    "hamsci_physics.grape.raw_reader",
+    "hamsci_physics.grape.packager",
+    "hamsci_physics.grape.spectrogram",
+    "hamsci_physics.grape.uploader",
+    "hamsci_physics.grape.hs_upload",
+    "hamsci_physics.cddis",
+    "hamsci_physics.cddis_auth",
+    "hamsci_physics.cli",
+]
+
+
+@pytest.mark.parametrize("name", MODULES)
+def test_module_imports(name):
+    importlib.import_module(name)
+
+
+def test_constants_track_the_shared_catalog():
+    from hamsci_dsp.stations import BUILTIN_CATALOG
+    from hamsci_physics import constants as c
+
+    assert c.WWV_FREQUENCIES == list(BUILTIN_CATALOG.get("WWV").frequencies_mhz)
+    assert (c.WWV_LAT, c.WWV_LON) == (
+        BUILTIN_CATALOG.get("WWV").lat, BUILTIN_CATALOG.get("WWV").lon)
+    # Carried over byte-identical from hf-timestd — a change here silently
+    # moves every reanalysis result, so it must be deliberate.
+    assert c.EARTH_RADIUS_KM == 6371.0
+    assert c.SPEED_OF_LIGHT_KM_S == 299792.458
+    assert (c.E_LAYER_HEIGHT_KM, c.F_LAYER_HEIGHT_KM) == (110.0, 300.0)

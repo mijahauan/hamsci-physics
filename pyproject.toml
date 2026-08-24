@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hamsci-physics"
+version = "0.1.0"
+description = "Ionospheric science products (TEC/dTEC, TID, GRAPE) from HF time-standard observations"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "Michael James Hauan AC0G", email = "ac0g@hauan.org" },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "h5py>=3.8.0,<3.16.0",   # 3.16 bundles HDF5 2.0.0, which breaks SWMR in long-running processes
+    "hamsci-dsp>=0.5.0",     # shared engines + io/schemas data layer (editable sibling, see [tool.uv.sources])
+    "hs-uploader>=0.1.0",    # GRAPE→PSWS ships through hs_uploader's PswsDatasetSftp
+    "digital_rf>=2.6.0",     # GRAPE daily dataset format
+    "matplotlib>=3.7.0",     # spectrogram rendering
+    "toml>=0.10.0",
+    "zstandard>=0.22.0",     # raw_buffer chunks are .bin.zst
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+]
+# IRI-2020 profiles for the reanalysis; needs gfortran at build time.
+iono = [
+    "netCDF4>=1.6.0",
+    "boto3>=1.28.0",
+]
+
+[project.scripts]
+hamsci-physics = "hamsci_physics.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q"
+testpaths = ["tests"]
+
+[tool.uv.sources]
+# editable=true so a `git pull` of a sibling propagates without a reinstall —
+# the suite-wide "one source tree, many editable consumers" convention.
+hamsci-dsp = { path = "../hamsci-dsp", editable = true }
+hs-uploader = { path = "../hs-uploader", editable = true }

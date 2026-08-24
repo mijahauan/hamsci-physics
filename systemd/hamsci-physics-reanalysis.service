@@ -1,0 +1,36 @@
+[Unit]
+Description=HF-TimeStd Ionospheric Reanalysis
+Documentation=https://github.com/HamSCI/hamsci-physics
+After=network.target
+
+[Service]
+Type=oneshot
+User=timestd
+Group=timestd
+
+# Run at lowest priority to avoid interfering with real-time services
+Nice=19
+IOSchedulingClass=idle
+
+# Ensure output directories exist with correct permissions
+# Operator identity (callsign, grid) from sigmond — CLIENT-CONTRACT §14.2
+EnvironmentFile=-/etc/sigmond/coordination.env
+
+ExecStartPre=+/bin/mkdir -p /var/lib/timestd/phase2/science/propagation_stats
+ExecStartPre=+/bin/mkdir -p /var/lib/timestd/phase2/science/tec_reanalyzed
+ExecStartPre=+/usr/bin/chown -R timestd:timestd /var/lib/timestd/phase2/science
+
+ExecStart=/opt/git/sigmond/hamsci-physics/venv/bin/python -m hamsci_physics.ionospheric_reanalysis \
+    --config /etc/hamsci-physics/config.toml \
+    --hours 1
+
+# Timeout: should complete well within 5 minutes
+TimeoutStartSec=300
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hamsci-physics-reanalysis
+
+[Install]
+WantedBy=multi-user.target
