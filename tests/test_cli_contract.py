@@ -43,21 +43,20 @@ def test_version_json_names_the_component():
     assert doc["version"]
 
 
-def test_inventory_declares_a_non_radiod_client_reading_the_frozen_root(tmp_path):
+def test_inventory_declares_a_meta_client_reading_the_frozen_root(tmp_path):
     cfg = _config(tmp_path, callsign="AC0G", grid_square="EM38ww",
                   psws_station_id="S000170", instrument_id="171")
     doc = json.loads(run("inventory", "-c", str(cfg), expect=0).stdout)
 
-    assert doc["component"] == "hamsci-physics"
+    assert doc["client"] == "hamsci-physics"
     inst = doc["instances"][0]
-    assert inst["data_path"]["kind"] == "other"       # non-radiod client
+    # §16.3.1: a meta-client reads what a sibling client spooled.
+    assert inst["data_path"]["kind"] == "file"
+    assert inst["data_path"]["details"]["upstream_client"] == "hf-timestd"
     assert inst["station"]["psws_station_id"] == "S000170"
     # It consumes the timing core's products; it never produces timing.
     assert inst["provides_timing_calibration"] is False
-    assert inst["consumes_timing_authority"] is True
-    # The data root is the split's frozen contract, read in place.
-    assert inst["data_path"]["root"] == str(tmp_path)
-    assert any(p.endswith("/phase2") for p in inst["data_path"]["reads"])
+    assert str(tmp_path) in inst["data_path"]["details"]["products"]
 
 
 def test_validate_passes_on_a_complete_config(tmp_path):

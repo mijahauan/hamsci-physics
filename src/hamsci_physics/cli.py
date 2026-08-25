@@ -59,78 +59,30 @@ def _handle_version(args):
     return 0
 
 
-def _instance(cfg, config_path):
-    """The single-instance description shared by inventory and validate."""
-    station = cfg.get('station', {})
-    data_root = Path(cfg.get('paths', {}).get('data_root', DEFAULT_DATA_ROOT))
-    return {
-        'instance': 'hamsci-physics',
-        'config': str(config_path),
-        'station': {
-            'callsign': station.get('callsign', ''),
-            'grid_square': station.get('grid_square', ''),
-            'psws_station_id': station.get('psws_station_id', ''),
-            'instrument_id': station.get('instrument_id', ''),
-        },
-        'data_path': {
-            'kind': 'other',
-            'root': str(data_root),
-            'reads': [str(data_root / 'raw_buffer'), str(data_root / 'phase2')],
-            'writes': [str(data_root / 'phase2' / 'fusion'),
-                       str(data_root / 'phase2' / 'science'),
-                       str(data_root / 'upload')],
-        },
-        'provides_timing_calibration': False,
-        'consumes_timing_authority': True,
-    }
-
-
 def _handle_inventory(args):
-    """`hamsci-physics inventory --json` — sigmond client-contract surface."""
+    """`hamsci-physics inventory --json` — CLIENT-CONTRACT §3/§16/§17.
+
+    MUST exit 0 even on degraded paths (sigmond's drop-in check calls
+    this out explicitly): a client that cannot describe itself is still
+    expected to say so in `issues` rather than fail the subprocess.
+    """
+    from hamsci_physics.contract import build_inventory
+
     config_path = Path(getattr(args, 'config', None) or DEFAULT_CONFIG)
-    cfg = _load_config(config_path)
-    issues = []
-    if not cfg:
-        issues.append({'severity': 'warn', 'instance': None,
-                       'message': f'{config_path} not found'})
-    doc = {
-        'component': 'hamsci-physics',
-        'version': _version_string(),
-        'instances': [_instance(cfg, config_path)],
-        'issues': issues,
-    }
-    print(json.dumps(doc, indent=2))
+    payload = build_inventory(_load_config(config_path), config_path)
+    print(json.dumps(payload, indent=2))
     return 0
 
 
 def _handle_validate(args):
-    """`hamsci-physics validate --json` — self-check per the contract."""
+    """`hamsci-physics validate --json` — CLIENT-CONTRACT §3/§12.3."""
+    from hamsci_physics.contract import build_validate
+
     config_path = Path(getattr(args, 'config', None) or DEFAULT_CONFIG)
-    cfg = _load_config(config_path)
-    issues = []
+    payload = build_validate(_load_config(config_path), config_path)
+    print(json.dumps(payload, indent=2))
+    return 0 if payload["ok"] else 1
 
-    if not cfg:
-        issues.append({'severity': 'fail', 'instance': None,
-                       'message': f'{config_path} not found'})
-    else:
-        station = cfg.get('station', {})
-        for key in ('callsign', 'grid_square'):
-            if not station.get(key):
-                issues.append({'severity': 'fail', 'instance': 'hamsci-physics',
-                               'message': f'station.{key} is empty'})
-        if not station.get('psws_station_id'):
-            issues.append({'severity': 'warn', 'instance': 'hamsci-physics',
-                           'message': 'station.psws_station_id is empty — '
-                                      'GRAPE uploads will be skipped'})
-        data_root = Path(cfg.get('paths', {}).get('data_root', DEFAULT_DATA_ROOT))
-        if not data_root.exists():
-            issues.append({'severity': 'fail', 'instance': 'hamsci-physics',
-                           'message': f'data_root {data_root} does not exist — '
-                                      'is hf-timestd installed on this host?'})
-
-    ok = not any(i['severity'] == 'fail' for i in issues)
-    print(json.dumps({'ok': ok, 'issues': issues}, indent=2))
-    return 0 if ok else 1
 
 
 def _grape_sweep_retry(day: str, data_root, config_path) -> None:
@@ -273,9 +225,18 @@ def main():
     
     args = parser.parse_args()
 
-    if getattr(args, 'debug', False):
-        logging.basicConfig(level=logging.DEBUG,
-                            format='%(asctime)s %(levelname)s %(name)s: %(message)s')
+    # CONTRACT §3, hard requirement: inventory/validate must emit ONLY
+    # the JSON document on stdout.  Every logger goes to stderr before a
+    # single subcommand runs, so no "Logging configured" line can ever
+    # land in the JSON pipe.
+    _root = logging.getLogger()
+    _root.handlers.clear()
+    _stderr = logging.StreamHandler(sys.stderr)
+    _stderr.setFormatter(
+        logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s'))
+    _root.addHandler(_stderr)
+    _root.setLevel(logging.DEBUG if getattr(args, 'debug', False)
+                   else logging.INFO)
 
     if args.command == 'version':
         sys.exit(_handle_version(args))
