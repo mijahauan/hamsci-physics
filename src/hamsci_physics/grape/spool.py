@@ -178,6 +178,34 @@ def _datasets_in(package: Path) -> List[Path]:
     return sorted(p for p in package.rglob("OBS*") if p.is_dir())
 
 
+def pending_datasets(
+    upload_root: Path | str,
+    cursor_ns: Optional[int],
+) -> List[Path]:
+    """OBS datasets the uploader has not acked yet, oldest first.
+
+    Mirrors FileTreeSource's KEEP-mode selection (``st_mtime_ns > cursor``)
+    without importing hs_uploader or touching its watermark store, so
+    ``grape status`` / ``grape upload --dry-run`` can answer "what is still
+    waiting?" as pure read-only observers.  A ``None`` cursor means nothing
+    is known to be shipped, so everything present is pending.
+    """
+    upload_root = Path(upload_root)
+    if not upload_root.is_dir():
+        return []
+    found: List[tuple] = []
+    for obs in upload_root.rglob("OBS*"):
+        if not obs.is_dir():
+            continue
+        try:
+            mtime = obs.stat().st_mtime_ns
+        except OSError:
+            continue
+        if cursor_ns is None or mtime > cursor_ns:
+            found.append((mtime, obs))
+    return [obs for _, obs in sorted(found)]
+
+
 def _dir_size(path: Path) -> int:
     total = 0
     for p in path.rglob("*"):

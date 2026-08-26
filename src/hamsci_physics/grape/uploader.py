@@ -4,7 +4,6 @@ Upload manager module
 Handles reliable upload of processed datasets to remote repositories.
 """
 
-import os
 import re
 import subprocess
 import logging
@@ -104,15 +103,18 @@ def test_psws_connectivity(toml_config: Dict) -> bool:
     Returns:
         True if all checks pass
     """
-    station = toml_config.get('station', {}) or {}
     uploader = toml_config.get('uploader', {}) or {}
     sftp_config = uploader.get('sftp', {}) or {}
 
-    host = sftp_config.get('host', 'pswsnetwork.eng.ua.edu')
-    user = sftp_config.get('user', station.get('id', ''))
-    ssh_key = sftp_config.get('ssh_key', '')
-    if ssh_key:
-        ssh_key = os.path.expanduser(ssh_key)
+    # Resolve through psws_identity: this preflight read [station].id and
+    # [uploader.sftp].ssh_key only, so on a post-2026-08-24 config (which
+    # spells them psws_station_id / [uploader].ssh_key_file) it reported an
+    # empty user and a missing key -- diagnosing a config-name mismatch as a
+    # credentials problem.  An explicit [uploader.sftp].user still wins.
+    from . import psws_identity
+    host = sftp_config.get('host') or psws_identity.sftp_host(toml_config)
+    user = sftp_config.get('user') or psws_identity.station_id(toml_config)
+    ssh_key = psws_identity.ssh_key(toml_config, default=None)
 
     print(f"PSWS Upload Preflight Check")
     print(f"  Host:    {host}")

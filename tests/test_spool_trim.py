@@ -196,3 +196,33 @@ class TestCursorRead:
 
 def test_default_window_is_fourteen_days():
     assert spool.DEFAULT_MAX_AGE_DAYS == 14
+
+
+class TestPendingDatasets:
+    """`grape status` / `grape upload --dry-run` as pure read-only observers."""
+
+    def test_everything_is_pending_when_cursor_unknown(self, tmp_path):
+        make_package(tmp_path, "20260824", age_days=2)
+        make_package(tmp_path, "20260825", age_days=1)
+        assert len(spool.pending_datasets(tmp_path, None)) == 2
+
+    def test_nothing_pending_when_cursor_is_current(self, tmp_path):
+        a = make_package(tmp_path, "20260824", age_days=2)
+        b = make_package(tmp_path, "20260825", age_days=1)
+        newest = max(obs_mtime_ns(a), obs_mtime_ns(b))
+        assert spool.pending_datasets(tmp_path, newest) == []
+
+    def test_only_datasets_after_the_cursor(self, tmp_path):
+        old = make_package(tmp_path, "20260824", age_days=2)
+        new = make_package(tmp_path, "20260825", age_days=1)
+        pending = spool.pending_datasets(tmp_path, obs_mtime_ns(old))
+        assert [p.parents[2].name for p in pending] == [new.name]
+
+    def test_oldest_first(self, tmp_path):
+        make_package(tmp_path, "20260820", age_days=6)
+        make_package(tmp_path, "20260825", age_days=1)
+        pending = spool.pending_datasets(tmp_path, None)
+        assert [p.parents[2].name for p in pending] == ["20260820", "20260825"]
+
+    def test_missing_root_is_empty_not_an_error(self, tmp_path):
+        assert spool.pending_datasets(tmp_path / "nope", None) == []

@@ -164,8 +164,11 @@ sudo -u timestd hamsci-physics grape package --date 2026-01-20 --callsign AC0G -
 # Upload (dry-run first)
 sudo -u timestd hamsci-physics grape upload --date 2026-01-20 --dry-run
 
-# Actual upload
-sudo -u timestd hamsci-physics grape upload --date 2026-01-20
+# Actual upload: not a command you run
+# Uploading is hs-uploader.service's job — it pumps every 30 s and
+# ships whatever is new in the spool.  Watch it rather than driving it:
+journalctl -u hs-uploader -f
+sudo -u timestd hamsci-physics grape status
 ```
 
 ## Troubleshooting

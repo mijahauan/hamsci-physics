@@ -614,47 +614,41 @@ def main():
             packager.package_day(date_str)
             
         elif args.grape_command == 'upload':
-            import toml
-            from .grape.hs_upload import build_uploader, run_upload
-
-            config_path = Path(DEFAULT_CONFIG)
-            if not config_path.exists():
-                print(f"❌ Config not found: {config_path}")
-                sys.exit(1)
-            with open(config_path, 'r') as f:
-                config = toml.load(f)
+            # hs-uploader.service is the single outbound path (2026-08-26).
+            # This command used to drain the spool in-process, which meant a
+            # second writer to the daemon's watermark store under a different
+            # user -- the exact configuration SqliteWatermarkStore's docstring
+            # calls "an operator config error".  --dry-run still answers "what
+            # is still waiting?", as a pure read-only observer.
+            from .grape.spool import pending_datasets, shipped_cursor_ns
+            try:
+                from hs_uploader.watermark.sqlite import default_path
+                _db = default_path()
+            except Exception:
+                _db = Path('/var/lib/hs-uploader/watermarks.db')
 
             upload_root = data_root / 'upload'
-            if not upload_root.exists():
-                print(f"📤 GRAPE upload: nothing to do (no {upload_root})")
-                sys.exit(0)
-
-            # GRAPE → PSWS via hs_uploader's PswsDatasetSftp.  The mtime
-            # cursor in /var/lib/hs-uploader/watermarks.db tracks shipped
-            # datasets, so this always drains whatever is un-shipped and
-            # is idempotent.  --date / --resume are accepted for
-            # back-compat but the drain is the same cursor-gated sweep.
             if args.dry_run:
-                up = build_uploader(config, upload_root, dry_run=True)
-                pipe = up.pipelines[0]
-                cursor = pipe.watermark.get_cursor(
-                    pipe.source_id(), pipe.dest_id(),
-                    pipe.transport.primary_table(),
-                )
-                pending = [
-                    r.payload_path
-                    for b in pipe.source.iter_batches(cursor=cursor, limit=1000)
-                    for r in b.records
-                ]
-                print(f"📤 GRAPE upload (dry run) — {len(pending)} un-shipped dataset(s):")
+                cursor = shipped_cursor_ns(_db)
+                pending = pending_datasets(upload_root, cursor)
+                print(f"📤 GRAPE upload (dry run) — {len(pending)} un-shipped "
+                      f"dataset(s) in {upload_root}:")
                 for o in pending:
-                    print(f"   would upload: {o}")
+                    print(f"   pending: {o}")
+                if not pending:
+                    print("   (nothing waiting — hs-uploader is current)")
                 sys.exit(0)
 
-            print(f"📤 GRAPE upload via hs_uploader (root={upload_root})")
-            passes = run_upload(config, upload_root, dry_run=False)
-            print(f"   drained in {passes} pump pass(es)")
-            sys.exit(0)
+            print("📤 GRAPE upload is owned by hs-uploader.service — refusing "
+                  "to run a second uploader.")
+            print(f"   spool:  {upload_root}")
+            print("   The daemon pumps every 30 s and ships whatever is new;")
+            print("   there is nothing to kick off by hand.")
+            print()
+            print("   See what is waiting:  hamsci-physics grape upload --dry-run")
+            print("   See delivery state:   hamsci-physics grape status")
+            print("   Watch it ship:        journalctl -u hs-uploader -f")
+            sys.exit(2)
 
         elif args.grape_command == 'test-upload':
             from .grape.uploader import test_psws_connectivity
@@ -673,7 +667,8 @@ def main():
         elif args.grape_command == 'status':
             import sqlite3
             import toml
-            from .grape.hs_upload import build_uploader
+            from .grape import psws_identity
+            from .grape.spool import pending_datasets, shipped_cursor_ns
             from hs_uploader.watermark.sqlite import default_path
 
             config_path = Path(DEFAULT_CONFIG)
@@ -684,25 +679,22 @@ def main():
 
             print(f"\n📊 GRAPE Upload Status (hs_uploader → PSWS)")
             upload_root = data_root / 'upload'
+            # Read-only observer: building an Uploader here would construct
+            # SqliteWatermarkStore, which WRITES on construct (schema init +
+            # a group-write chmod).  A status command must never open the
+            # daemon's cursor store for writing.
             try:
-                up = build_uploader(config, upload_root, dry_run=True)
-                pipe = up.pipelines[0]
-                cursor = pipe.watermark.get_cursor(
-                    pipe.source_id(), pipe.dest_id(),
-                    pipe.transport.primary_table(),
-                )
-                pending = [
-                    r.payload_path
-                    for b in pipe.source.iter_batches(cursor=cursor, limit=1000)
-                    for r in b.records
-                ] if upload_root.exists() else []
-                print(f"   dest:    {pipe.dest_id()}")
-                print(f"   cursor:  {cursor.decode() if cursor else '(none — nothing shipped yet)'}")
+                cursor = shipped_cursor_ns(default_path())
+                pending = pending_datasets(upload_root, cursor)
+                station = psws_identity.station_id(config) or "(unset)"
+                print(f"   dest:    psws-grape-sftp:"
+                      f"{psws_identity.sftp_host(config)}:{station}")
+                print(f"   cursor:  {cursor if cursor is not None else '(none — nothing shipped yet)'}")
                 print(f"   pending: {len(pending)} un-shipped dataset(s)")
                 for o in pending[:10]:
                     print(f"     • {o}")
             except Exception as e:
-                print(f"   (could not build pipeline view: {e})")
+                print(f"   (could not read delivery state: {e})")
 
             # Recent attempt outcomes + dead-letter from the watermark DB.
             try:
