@@ -267,7 +267,6 @@ def main():
             import toml
             import os
             import json as _json
-            import shutil
 
             date_str = resolve_date(args.date)
 
@@ -426,48 +425,34 @@ def main():
             upload_attempted = False
             upload_ok = False
 
+            # hs-uploader.service is the SINGLE outbound path for every
+            # HamSCI client (2026-08-26).  grape-daily produces; it no longer
+            # ships.  Two uploaders draining one spool against one watermark
+            # was never supported -- SqliteWatermarkStore's own docstring
+            # calls cross-process writers "an operator config error" -- and
+            # the in-process path is what made the 08-25 config-name break
+            # look like an upload failure instead of a producer success.
+            print(f"\n━━━ Stage 4: Handoff ━━━")
+            upload_attempted = True
+            upload_ok = True
+            pipeline_status['upload_status'] = 'external'
+            print(f"   spool: {upload_dir}")
+            print(f"   hs-uploader.service ships it (pumps every 30 s)")
             if args.no_upload:
-                print(f"\n━━━ Stage 4: Upload (skipped via --no-upload) ━━━")
-                print(f"   Packaged data ready at: {upload_dir}")
-                print(f"   Upload later with: hf-timestd grape upload --date {date_str}")
-                pipeline_status['upload_status'] = 'skipped'
-            else:
-                print(f"\n━━━ Stage 4: Upload ━━━")
-                upload_attempted = True
+                # Retained for back-compat, but be honest: the daemon scans
+                # the spool independently, so this flag cannot hold the data
+                # back any more.
+                print(f"   ⚠️  --no-upload no longer suppresses upload: the "
+                      f"daemon owns the spool.")
+                print(f"      To hold data back: systemctl stop hs-uploader.service")
 
-                # When the host uploader daemon (hs-uploader.service) owns
-                # GRAPE→PSWS, this in-process upload is disabled to avoid two
-                # uploaders racing the shared watermark.  The daemon ships the
-                # packaged OBS dataset from /var/lib/timestd/upload; we still
-                # mark upload_ok so Stage 5 cleanup (decimated .bin) proceeds.
-                if os.environ.get("GRAPE_UPLOAD_EXTERNAL", "").strip().lower() in (
-                    "1", "true", "yes", "on",
-                ):
-                    print("   engine: external — hs-uploader.service (daemon) ships the dataset")
-                    upload_ok = True
-                    pipeline_status['upload_status'] = 'external'
-                else:
-                    # GRAPE → PSWS via hs_uploader's PswsDatasetSftp transport.
-                    # Drains every un-shipped GRAPE dataset; the mtime cursor in
-                    # /var/lib/hs-uploader/watermarks.db tracks what's shipped and
-                    # failures retry via the watermark deliverable queue.
-                    from .grape.hs_upload import run_upload as _hs_run_upload
-                    upload_root = data_root / 'upload'
-                    print(f"   engine: hs_uploader (drain {upload_root})")
-                    try:
-                        passes = _hs_run_upload(config, upload_root, dry_run=False)
-                        print(f"   hs_uploader drained in {passes} pump pass(es)")
-                        upload_ok = True
-                        pipeline_status['upload_status'] = 'completed'
-                    except Exception as e:
-                        print(f"   ⚠️  hs_uploader upload error: {e}")
-                        print(f"   Retry with: hf-timestd grape upload  (or wait for grape-upload-retry)")
-                        pipeline_status['upload_status'] = 'failed'
-
-            # === Stage 5: Post-upload cleanup ===
+            # === Stage 5: Cleanup ===
             if upload_ok:
                 print(f"\n━━━ Stage 5: Cleanup ━━━")
-                # Delete decimated .bin files (regenerable from raw if needed)
+                # Delete decimated .bin files.  Safe to do before the daemon
+                # has shipped: they are regenerable from raw, and the packaged
+                # OBS dataset (which is what actually gets sent) stays in the
+                # spool for the whole retention window.
                 cleaned_dec = 0
                 for ch in decimated:
                     ch_dir = ch.replace(' ', '_')
@@ -483,13 +468,26 @@ def main():
                 if cleaned_dec > 0:
                     print(f"   Removed {cleaned_dec} decimated files")
 
-                # Delete DRF upload package (already uploaded)
-                if upload_dir.exists():
-                    try:
-                        shutil.rmtree(upload_dir)
-                        print(f"   Removed upload package: {upload_dir.name}")
-                    except Exception as e:
-                        print(f"   ⚠️  Could not delete {upload_dir}: {e}")
+                # The packaged dataset STAYS -- hs-uploader has not shipped
+                # it yet and its source runs `retention = "keep"`, so deleting
+                # here would destroy the day's science before it left the
+                # host.  Retention is by age AND proof of delivery instead:
+                from .grape.spool import (DEFAULT_MAX_AGE_DAYS, shipped_cursor_ns,
+                                          trim_spool)
+                try:
+                    from hs_uploader.watermark.sqlite import default_path
+                    _db = default_path()
+                except Exception:            # hs_uploader absent (dev host)
+                    _db = Path('/var/lib/hs-uploader/watermarks.db')
+                try:
+                    _cursor = shipped_cursor_ns(_db)
+                    _trim = trim_spool(data_root / 'upload', cursor_ns=_cursor,
+                                       max_age_days=DEFAULT_MAX_AGE_DAYS)
+                    for line in _trim.summary_lines():
+                        print(line)
+                except Exception as e:
+                    # Retention must never take the pipeline down with it.
+                    print(f"   ⚠️  spool trim skipped: {e}")
 
                 # Spectrograms are KEPT — they're the permanent visual record
                 print(f"   Spectrograms retained")
