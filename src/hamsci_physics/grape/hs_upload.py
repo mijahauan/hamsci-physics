@@ -27,7 +27,6 @@ signal here (same contract as the magnetometer path).
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -35,6 +34,8 @@ from hs_uploader import Pipeline, StationIdentity, Uploader
 from hs_uploader.sources import FileSpec, FileTreeSource
 from hs_uploader.transports.psws_magnetometer import PswsDatasetSftp
 from hs_uploader.watermark.sqlite import SqliteWatermarkStore, default_path
+
+from . import psws_identity
 
 logger = logging.getLogger(__name__)
 
@@ -58,25 +59,24 @@ def build_uploader(
     unchanged apart from the transport implementation.
     """
     station = toml_config.get("station") or {}
-    uploader = toml_config.get("uploader") or {}
-    sftp = uploader.get("sftp") or {}
 
-    station_id = str(station.get("id", "")).strip()
-    instrument_id = str(station.get("instrument_id", "")).strip()
+    # Field names differ between this repo's config and the pre-split
+    # hf-timestd one; psws_identity accepts both.  See that module.
+    station_id = psws_identity.station_id(toml_config)
+    instrument_id = psws_identity.instrument_id(toml_config)
     if not station_id:
         raise ValueError(
-            "grape hs-upload: [station].id (PSWS station id) is empty"
+            "grape hs-upload: [station].psws_station_id (PSWS station id) "
+            "is empty"
         )
     if not instrument_id:
         raise ValueError(
             "grape hs-upload: [station].instrument_id is empty"
         )
 
-    ssh_key = os.path.expanduser(str(sftp.get("ssh_key", "")).strip())
-    host = str(sftp.get("host", "pswsnetwork.eng.ua.edu")).strip()
-    bw = sftp.get("bandwidth_limit_kbps")
-    if bw in (0, "0", "", None):
-        bw = None
+    ssh_key = psws_identity.ssh_key(toml_config)
+    host = psws_identity.sftp_host(toml_config)
+    bw = psws_identity.bandwidth_limit_kbps(toml_config)
 
     identity = StationIdentity(
         call=str(station.get("callsign", "")).strip(),
