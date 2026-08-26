@@ -114,12 +114,21 @@ def test_psws_connectivity(toml_config: Dict) -> bool:
     from . import psws_identity
     host = sftp_config.get('host') or psws_identity.sftp_host(toml_config)
     user = sftp_config.get('user') or psws_identity.station_id(toml_config)
-    ssh_key = psws_identity.ssh_key(toml_config, default=None)
+    # Resolve the key EXACTLY as the uploader does, default included.  A
+    # preflight that skips the fallback reports "no ssh_key" on a host that
+    # uploads perfectly well -- a false alarm of the same family as the bug
+    # this function exists to catch.
+    ssh_key = psws_identity.ssh_key(toml_config)
+    key_is_default = not (
+        (uploader.get('ssh_key_file') or '').strip()
+        or (sftp_config.get('ssh_key') or '').strip()
+    )
 
     print(f"PSWS Upload Preflight Check")
     print(f"  Host:    {host}")
     print(f"  User:    {user}")
-    print(f"  SSH key: {ssh_key}")
+    print(f"  SSH key: {ssh_key}"
+          f"{'  (default — not set in config)' if key_is_default else ''}")
     print()
 
     all_ok = True
@@ -141,7 +150,8 @@ def test_psws_connectivity(toml_config: Dict) -> bool:
     # --- Check 2: SSH key file ---
     print(f"[2/3] SSH key at {ssh_key} ...", end=" ", flush=True)
     if not ssh_key:
-        print("FAILED (no ssh_key configured in [uploader.sftp])")
+        print("FAILED (no ssh key: none in [uploader].ssh_key_file or "
+              "[uploader.sftp].ssh_key, and no default)")
         all_ok = False
     else:
         key_path = Path(ssh_key)
