@@ -28,6 +28,10 @@ dependencies = [
     "digital_rf>=2.6.0",     # GRAPE daily dataset format
     "matplotlib>=3.7.0",     # spectrogram rendering
     "toml>=0.10.0",
+    # cddis.py and cddis_auth.py import it directly.  It was undeclared, so a
+    # clean install imported fine until it reached CDDIS and then failed at
+    # runtime; here it only showed as a test that could not collect.
+    "requests>=2.28.0",
     "zstandard>=0.22.0",     # raw_buffer chunks are .bin.zst
     # hamsci-physics-fusion.service runs with WatchdogSec=120 and pets it via
     # sd_notify.  Without this binding the service cannot signal liveness and
