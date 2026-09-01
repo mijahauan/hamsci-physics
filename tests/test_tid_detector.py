@@ -82,8 +82,17 @@ class TestConstruction:
         assert detector._completed_events == []
 
     def test_known_stations_table(self, detector):
-        for code in ('WWV', 'WWVH', 'CHU', 'BPM'):
+        """Derived from the catalogue's ACTIVE stations, so a retirement does
+        not leave this asserting a transmitter that is off the air."""
+        from hamsci_dsp.stations import BUILTIN_CATALOG
+
+        expected = {s.name for s in BUILTIN_CATALOG.active_stations()
+                    if s.name in ('WWV', 'WWVH', 'BPM')}
+        assert expected, "no active stations to check"
+        for code in expected:
             assert code in detector._station_locations
+        assert 'CHU' not in detector._station_locations, (
+            "CHU ceased transmitting; it must not be predicted")
 
 
 class TestAddResidual:

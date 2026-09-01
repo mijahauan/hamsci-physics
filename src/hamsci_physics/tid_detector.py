@@ -215,12 +215,15 @@ class TIDDetector:
         self._active_events: List[TIDEvent] = []
         self._completed_events: List[TIDEvent] = []
 
-        # Station locations
+        # Station locations — from the ONE catalogue, not a local copy.
+        # This was the SUPERSEDED WWV position (40.6781, -105.0469), 0.49 km
+        # from NIST's published figure.  A travelling-ionospheric-disturbance
+        # detector infers structure from arrival timing, so a transmitter in
+        # the wrong place puts the structure in the wrong place too.
+        from hamsci_dsp.stations import BUILTIN_CATALOG as _CATALOG
         self._station_locations = {
-            'WWV': (40.6781, -105.0469),
-            'WWVH': (21.9886, -159.7642),
-            'CHU': (45.2925, -75.7542),
-            'BPM': (34.9500, 109.5500),
+            st.name: st.coordinates for st in _CATALOG.active_stations()
+            if st.name in ('WWV', 'WWVH', 'BPM')
         }
 
         logger.info(f"TIDDetector initialized: {buffer_minutes}min buffer, "

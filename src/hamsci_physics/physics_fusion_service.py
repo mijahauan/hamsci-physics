@@ -906,12 +906,13 @@ class PhysicsFusionService:
         Computes ionospheric pierce points at the great-circle midpoint
         between receiver and transmitter, and converts sTEC to vTEC.
         """
-        # Known station coordinates (lat, lon)
+        # Station coordinates — from the ONE catalogue.  These were rounded
+        # to two decimals locally, up to 0.9 km out, and are used to place
+        # ionospheric pierce points at the path midpoint.
+        from hamsci_dsp.stations import BUILTIN_CATALOG as _CATALOG
         STATION_COORDS = {
-            'WWV': (40.68, -105.04),
-            'WWVH': (21.99, -159.76),
-            'CHU': (45.29, -75.75),
-            'BPM': (34.95, 109.51),
+            st.name: st.coordinates for st in _CATALOG.active_stations()
+            if st.name in ('WWV', 'WWVH', 'BPM')
         }
         
         ipp_list = []
