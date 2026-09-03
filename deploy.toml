@@ -34,14 +34,26 @@ edit = "scripts/config-review.sh"
 # "hamsci-dsp>=0.5.0" against an index that does not have it and the build
 # fails.  The interpreter is the fleet's uv-managed CPython 3.11, matching
 # every other client venv (digital_rf / h5py wheels are built for it).
+# ⛔ The interpreter path names the MINOR series, never the patch release.
+# It used to read cpython-3.11.15; uv had already moved its managed CPython to
+# 3.11.16, so the first build step pointed at a directory that no longer
+# existed.  /opt/uv/python/cpython-3.11-linux-x86_64-gnu is the stable symlink
+# uv maintains onto whichever patch it currently holds, so the next patch bump
+# cannot silently break every fresh install again.
 [build]
 steps = [
-    "/opt/uv/python/cpython-3.11.15-linux-x86_64-gnu/bin/python3.11 -m venv /opt/git/sigmond/hamsci-physics/venv",
+    "/opt/uv/python/cpython-3.11-linux-x86_64-gnu/bin/python3.11 -m venv /opt/git/sigmond/hamsci-physics/venv",
     "/opt/git/sigmond/hamsci-physics/venv/bin/pip install --upgrade pip setuptools wheel",
     "/opt/git/sigmond/hamsci-physics/venv/bin/pip install -e /opt/git/sigmond/hamsci-dsp",
     "/opt/git/sigmond/hamsci-physics/venv/bin/pip install -e /opt/git/sigmond/hs-uploader",
     "/opt/git/sigmond/hamsci-physics/venv/bin/pip install -e .",
 ]
+# What the steps above must leave behind.  sigmond reads this twice: its
+# installer skips the build when the artefact already exists, and refuses to
+# report an install whose steps exited 0 without producing it; the readiness
+# gate reads it to decide whether this client counts as built.  Declaring
+# nothing here is how a build that never ran could pass for one that did.
+produces = ["/opt/git/sigmond/hamsci-physics/venv/bin/hamsci-physics"]
 
 # ---------------------------------------------------------------------------
 # Install phase.
@@ -53,6 +65,24 @@ steps = [
 user  = "timestd"
 group = "timestd"
 
+# The CLI on PATH, the way every other client in the suite exposes its own.
+# sigmond's readiness probe runs `<binary> version --json` to prove the venv
+# resolves end to end, and it looks on PATH first.  Without this link the probe
+# reported `client binary not found` even on AC0G-B4, where the venv existed
+# and GRAPE was running -- a working station failing its own gate.
+[[install.steps]]
+kind = "link"
+src  = "venv/bin/hamsci-physics"
+dst  = "/usr/local/bin/hamsci-physics"
+
+# ⚠ The three steps below use `name`/`run`, which the client contract does not
+# define -- it specifies kind = "link" | "copy" | "render" -- and sigmond
+# implements only `link`.  So these have never executed.  A fresh station gets
+# /etc/hamsci-physics/config.toml from `smd config init hamsci-physics`
+# ([contract.config] above) and the output directories from hf-timestd, which
+# owns /var/lib/timestd.  Left in place, and labelled, rather than quietly
+# deleted: converting them to contract kinds (mkdir + render) is the right
+# repair and belongs with the sigmond work that implements those kinds.
 [[install.steps]]
 name = "config directory"
 run  = "install -d -m 0755 /etc/hamsci-physics"
