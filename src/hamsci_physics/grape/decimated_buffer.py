@@ -53,7 +53,12 @@ class MinuteMetadata:
     quality_grade: str  # A, B, C, D, X
     gap_samples: int  # Number of gap samples in this minute
     valid: bool  # Was this minute successfully processed?
-    
+    # TIMING_PROVENANCE_MODEL §3.1 (2026-09-04): whose numbering the minute's
+    # registration belongs to, and which registration method produced it.
+    # None on products older than the v2 timing block.
+    counter_epoch_id: Optional[str] = None
+    origin: Optional[str] = None
+
     def to_dict(self) -> Dict:
         return asdict(self)
 
@@ -72,7 +77,11 @@ class DayMetadata:
     valid_minutes: int = 0
     total_gap_samples: int = 0
     completeness_pct: float = 0.0
-    
+    # MEASUREMENT_MODEL §3: the day's counter epochs and where they changed.
+    counter_epochs: int = 0
+    origin_switches: int = 0
+    epoch_boundaries: List[int] = field(default_factory=list)
+
     def update_summary(self):
         """Recompute summary statistics."""
         self.valid_minutes = sum(1 for m in self.minutes.values() if m.get('valid', False))
@@ -80,6 +89,16 @@ class DayMetadata:
         expected_samples = len(self.minutes) * SAMPLES_PER_MINUTE
         if expected_samples > 0:
             self.completeness_pct = ((expected_samples - self.total_gap_samples) / expected_samples) * 100
+        ordered = sorted(self.minutes.values(), key=lambda m: int(m.get('minute_index', 0)))
+        ids = [m.get('counter_epoch_id') for m in ordered]
+        self.counter_epochs = len({i for i in ids if i})
+        self.epoch_boundaries = [
+            int(ordered[k]['minute_index']) for k in range(1, len(ordered))
+            if ids[k] and ids[k - 1] and ids[k] != ids[k - 1]]
+        origins = [m.get('origin') for m in ordered]
+        self.origin_switches = sum(
+            1 for k in range(1, len(origins))
+            if origins[k] and origins[k - 1] and origins[k] != origins[k - 1])
     
     def to_dict(self) -> Dict:
         self.update_summary()
@@ -93,7 +112,10 @@ class DayMetadata:
             'summary': {
                 'valid_minutes': self.valid_minutes,
                 'total_gap_samples': self.total_gap_samples,
-                'completeness_pct': round(self.completeness_pct, 2)
+                'completeness_pct': round(self.completeness_pct, 2),
+                'counter_epochs': self.counter_epochs,
+                'origin_switches': self.origin_switches,
+                'epoch_boundaries': list(self.epoch_boundaries),
             }
         }
     
@@ -209,7 +231,9 @@ class DecimatedBuffer:
         d_clock_ms: float = 0.0,
         uncertainty_ms: float = 999.0,
         quality_grade: str = 'X',
-        gap_samples: int = 0
+        gap_samples: int = 0,
+        counter_epoch_id: Optional[str] = None,
+        origin: Optional[str] = None,
     ) -> bool:
         """
         Write one minute of decimated data to buffer.
@@ -282,7 +306,9 @@ class DecimatedBuffer:
                 uncertainty_ms=uncertainty_ms,
                 quality_grade=quality_grade,
                 gap_samples=gap_samples,
-                valid=True
+                valid=True,
+                counter_epoch_id=counter_epoch_id,
+                origin=origin,
             ).to_dict()
             self._metadata_dirty.add(date_str)
             

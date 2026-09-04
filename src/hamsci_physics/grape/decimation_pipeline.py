@@ -171,6 +171,7 @@ class DecimationPipeline:
         minutes_processed = 0
         gap_minutes_total = 0
         samples_generated = 0
+        last_epoch = None   # MEASUREMENT_MODEL §3: the counter epoch in force
 
         import gc
 
@@ -192,6 +193,17 @@ class DecimationPipeline:
                         samples = padded
                     elif len(samples) > expected_raw_samples:
                         samples = samples[:expected_raw_samples]
+
+                    # MEASUREMENT_MODEL §3: a radiod restart renumbers the
+                    # samples.  No filter history may span a re-based
+                    # counter, so a new epoch gets a fresh decimator.
+                    state = timing_state_from_sidecar(meta)
+                    if state.counter_epoch_id and last_epoch and state.counter_epoch_id != last_epoch:
+                        logger.info(f"  {channel_name}: counter epoch {last_epoch} -> {state.counter_epoch_id} "
+                                    f"at minute {minute_index}; resetting decimator state (MEASUREMENT_MODEL §3)")
+                        decimator = StatefulDecimator(input_rate=input_rate, output_rate=10)
+                    if state.counter_epoch_id:
+                        last_epoch = state.counter_epoch_id
 
                     # Process with continuous decimator state
                     decimated_chunk = decimator.process(samples)
@@ -225,15 +237,17 @@ class DecimationPipeline:
                 meta = None
 
             if decimated_chunk is not None and len(decimated_chunk) > 0:
-                d_clock, uncertainty, grade = timing_from_sidecar(meta)
+                state = timing_state_from_sidecar(meta)
 
                 success = output_buffer.write_minute(
                     minute_utc=float(minute_ts),
                     decimated_iq=decimated_chunk,
-                    d_clock_ms=d_clock,
-                    uncertainty_ms=uncertainty,
-                    quality_grade=grade,
-                    gap_samples=gap_info
+                    d_clock_ms=state.d_clock_ms,
+                    uncertainty_ms=state.uncertainty_ms,
+                    quality_grade=state.quality_grade,
+                    gap_samples=gap_info,
+                    counter_epoch_id=state.counter_epoch_id,
+                    origin=state.origin,
                 )
 
                 if success:
