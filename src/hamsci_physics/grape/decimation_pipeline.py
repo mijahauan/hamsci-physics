@@ -15,49 +15,35 @@ from .decimation import StatefulDecimator
 logger = logging.getLogger(__name__)
 
 
-# Grade ladder, uncertainty arm only — matches
-# l2_calibration_service._determine_quality_grade (A <2 ms, B <4, C <8,
-# else D).  "X" stays reserved for "no verdict", which is a different
-# statement from "a bad one".
-_GRADE_LADDER = ((2.0, "A"), (4.0, "B"), (8.0, "C"))
-UNKNOWN_TIMING = (0.0, 999.9, "X")
+# Grade ladder and the unknown sentinel live in timing_state since 2026-09-04;
+# re-exported so existing importers keep working.
+from .timing_state import GRADE_LADDER as _GRADE_LADDER  # noqa: F401
+from .timing_state import UNKNOWN as _UNKNOWN_STATE
+from .timing_state import timing_state_from_sidecar
+UNKNOWN_TIMING = _UNKNOWN_STATE.legacy_tuple
 
 
 def timing_from_sidecar(meta):
     """(d_clock_ms, uncertainty_ms, quality_grade) for one raw chunk.
 
-    The sidecar records the Offset Judge verdict under ``timing``
-    (``offset_ns``, ``offset_sigma_ns``, ``judge_tier``) — written by
-    ``binary_archive_writer``.  This pipeline used to look for flat
-    ``uncertainty_ms`` / ``quality_grade`` / ``d_clock_ms`` keys that no
-    producer has ever written, so every minute of every product shipped
-    the unknown sentinels regardless of tier (AC0G-B4: all 1440 minutes
-    of 20260814).
+    The sidecar records the registration under ``timing`` — since 2026-09-04
+    the schema v2 ``state`` record (TIMING_PROVENANCE_MODEL §3.1), before
+    that the Offset Judge verdict (``offset_ns``, ``offset_sigma_ns``,
+    ``judge_tier``) — written by ``binary_archive_writer``.  This pipeline
+    used to look for flat ``uncertainty_ms`` / ``quality_grade`` /
+    ``d_clock_ms`` keys that no producer has ever written, so every minute
+    of every product shipped the unknown sentinels regardless of tier
+    (AC0G-B4: all 1440 minutes of 20260814).
 
     Flat keys still win where a producer does supply them.  Absent both,
     the sentinels are returned unchanged: a chunk recorded without a
     verdict must keep saying so.
 
+    Delegates to ``timing_state.timing_state_from_sidecar`` since 2026-09-04;
+    that module reads ``u_epoch_ns`` and never ``judge_tier``.
     Forward-only — already-written products are not revisited.
     """
-    if not meta:
-        return UNKNOWN_TIMING
-    if meta.get("uncertainty_ms") is not None:
-        return (float(meta.get("d_clock_ms", 0.0)),
-                float(meta["uncertainty_ms"]),
-                str(meta.get("quality_grade", "X")))
-    timing = meta.get("timing") or {}
-    sigma_ns = timing.get("offset_sigma_ns")
-    if sigma_ns is None:
-        # A verdict we cannot put an uncertainty on is not a verdict.
-        return UNKNOWN_TIMING
-    uncertainty_ms = float(sigma_ns) / 1e6
-    grade = "D"
-    for bound, letter in _GRADE_LADDER:
-        if uncertainty_ms < bound:
-            grade = letter
-            break
-    return (float(timing.get("offset_ns", 0.0)) / 1e6, uncertainty_ms, grade)
+    return timing_state_from_sidecar(meta).legacy_tuple
 
 
 def _per_minute_gap(meta: Optional[dict]) -> int:

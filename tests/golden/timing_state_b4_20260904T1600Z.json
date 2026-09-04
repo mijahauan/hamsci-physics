@@ -1,0 +1,52 @@
+{
+ "a_level": "A1",
+ "a_level_provenance": "observed",
+ "calibration_plane": "ts1_injection_point",
+ "chain": "payload-anchored@1",
+ "counter_epoch_id": "r-2026-09-04T15:53:35Z",
+ "counter_space": "AC0G-B4-status.local/T6_96000",
+ "engineering": {
+  "cn0_db_hz": 55.1,
+  "cross_checked": true,
+  "host_clock": {
+   "reason": "every witness agrees with the host clock",
+   "since_utc": null,
+   "verdict": "ok",
+   "witnesses": {
+    "T2": {
+     "bound": 60.0,
+     "exceeded": false,
+     "kind": "pair_ms",
+     "value": 11.2
+    },
+    "lb1421": {
+     "bound": 1.0,
+     "exceeded": false,
+     "kind": "gps_second_s",
+     "value": 0.823
+    }
+   }
+  },
+  "how": "seeded",
+  "judge_tier": "T6",
+  "lock_credible": true,
+  "radiod_gps_time_ns": 1788537251988000000,
+  "radiod_rtp_timesnap": 2150318060,
+  "rf_gain_db": 7.5
+ },
+ "f_s_hz": 96000,
+ "k": 2,
+ "measurand_plane": "antenna_terminals",
+ "measured_at": "2026-09-04T15:54:11.999997458Z",
+ "n0": 2150319213,
+ "origin": "native_anchor",
+ "p": 0.95,
+ "reason": null,
+ "schema": "v2",
+ "stability_ns": 120,
+ "t": "2026-09-04T16:00:00.000000000Z",
+ "t0_utc_ns": 1788537251999997458,
+ "tau_s": 60.0,
+ "type": "state",
+ "u_epoch_ns": 4093
+}

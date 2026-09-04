@@ -1,0 +1,74 @@
+{
+ "budget": [
+  {
+   "correction_ns": 0,
+   "method": "designer statement, P. Elliott WB6CXC, 2026-08-30; standard injector mode",
+   "term": "ts1_modulator_delay",
+   "type": "B",
+   "u_ns": 200
+  },
+  {
+   "disposition": "not_declared",
+   "method": "feed, preamp and filter ahead of the injection point; station-specific",
+   "spans": [
+    "antenna_terminals",
+    "ts1_injection_point"
+   ],
+   "term": "antenna_to_injector",
+   "type": "B"
+  },
+  {
+   "disposition": "cancels",
+   "method": "identical path for signal and injected reference; cancels by construction",
+   "spans": [
+    "ts1_injection_point",
+    "rx888_adc"
+   ],
+   "term": "injector_to_receiver"
+  },
+  {
+   "disposition": "not_declared",
+   "method": "cable length x velocity factor; a sign-known bias, not an uncertainty",
+   "term": "gnss_antenna_feed",
+   "type": "B"
+  },
+  {
+   "correction_ns": 0,
+   "disposition": "historical",
+   "measured_on": {
+    "build": "pre-folding",
+    "date": "2026-08-24"
+   },
+   "method": "63 anchors over 4.5 h ACROSS RE-LOCKS; the folded build of 2026-08-29 removed the re-locks",
+   "term": "anchor_origin_dispersion",
+   "type": "A",
+   "u_ns": 1900
+  },
+  {
+   "correction_ns": 0,
+   "method": "conservative bound; becomes Type A computed from cn0_db_hz once the fine-stage sweep has run",
+   "term": "edge_estimation",
+   "type": "B",
+   "u_ns": 5000
+  },
+  {
+   "disposition": "excluded_by_convention",
+   "method": "labeling_convention = content: the channel filter's group delay is pipeline latency outside the measurand",
+   "term": "filter_group_delay",
+   "type": "B"
+  }
+ ],
+ "calibration_plane": "ts1_injection_point",
+ "id": "payload-anchored@1",
+ "k": 2,
+ "measurand": "UTC instant at which sample n was taken, at the antenna terminals",
+ "measurand_plane": "antenna_terminals",
+ "schema": "v2",
+ "traceability": {
+  "claim": "UTC(USNO) via GPS",
+  "qualification": "antenna-to-injector path not declared; receiver front end not characterised",
+  "qualified": true
+ },
+ "type": "chain",
+ "u_combined_ns": 5353
+}
