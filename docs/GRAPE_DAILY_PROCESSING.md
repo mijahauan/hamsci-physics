@@ -255,3 +255,11 @@ Resource usage:
 - **CPU**: Limited to 50% (configurable)
 - **Memory**: Limited to 2GB (configurable)
 - **Disk I/O**: Moderate (reading raw data, writing products)
+
+## Timing provenance (2026-09-04)
+
+After the package step the daily pipeline writes the day's timing-chain
+sidecar and runs the overclaim gate, both report-only. What the consumer
+reads from each chunk's `timing` block, the counter-epoch rule, where the
+sidecar lands and why it is not yet in the PSWS payload, and what the gate
+compares: see `docs/TIMING_STATE.md`.
