@@ -139,7 +139,45 @@ def _grape_daily_summary(upload_attempted: bool, upload_ok: bool,
 
 
 
-def main():
+def run_timing_chain(data_root, date: str, chain_path, out_dir) -> int:
+    """`grape timing-chain`: write the day's timing-chain sidecar
+    (TIMING_PROVENANCE_MODEL §3.2).  Exit 1 only when nothing was written."""
+    from .grape.timing_chain_sidecar import write_day_sidecar
+    out = write_day_sidecar(Path(data_root), date, chain_path=Path(chain_path), out_dir=out_dir)
+    if out is None:
+        print("FAILED: timing chain sidecar not written", file=sys.stderr)
+        return 1
+    print(str(out))
+    return 0
+
+
+def run_timing_gate(data_root, date: str, history_db, *, as_json: bool = False,
+                    raw_glob: str = None) -> int:
+    """`grape timing-gate`: the overclaim gate (TIMING_PROVENANCE_MODEL §8).
+    Exit 1 when any interval's published uncertainty falls below the scatter
+    an independent registration observed."""
+    from datetime import datetime, timedelta, timezone
+    from .grape.overclaim_gate import assess_day, load_history_rows
+    from .grape.timing_chain_sidecar import load_day_states
+    date = date.replace('-', '')
+    day = datetime.strptime(date, '%Y%m%d').replace(tzinfo=timezone.utc)
+    start = day.isoformat().replace('+00:00', 'Z')
+    end = (day + timedelta(days=1)).isoformat().replace('+00:00', 'Z')
+    states = load_day_states(Path(data_root), date, raw_glob)
+    rows = load_history_rows(Path(history_db), start, end) if Path(history_db).exists() else []
+    rep = assess_day(states, rows)
+    if as_json:
+        print(json.dumps(rep.to_dict(), indent=1))
+    else:
+        print(f"{rep.date or date}: {len(rep.intervals)} intervals, {rep.overclaims} overclaim(s), "
+              f"{rep.unwitnessed} unwitnessed")
+        for v in rep.intervals:
+            if v.overclaim:
+                print(f"  {v.counter_space} {v.t_start}: {v.reason}")
+    return 1 if rep.overclaims else 0
+
+
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog='hamsci-physics',
         description='Ionospheric science products from HF time-standard data',
@@ -222,7 +260,27 @@ def main():
     grape_status_parser.add_argument('--data-root', default='/var/lib/timestd', help='Data root directory')
     grape_status_parser.add_argument('--days', type=int, default=7, help='Days of history to show')
     grape_status_parser.add_argument('--debug', '-d', action='store_true', help='Enable DEBUG logging')
-    
+
+    # Timing provenance (TIMING_PROVENANCE_MODEL §3.2, §8)
+    tc = grape_subparsers.add_parser('timing-chain', help="Write the day's timing-chain sidecar (TIMING_PROVENANCE_MODEL §3.2)")
+    tc.add_argument('--data-root', type=Path, required=True)
+    tc.add_argument('--date', type=str, required=True, help='YYYYMMDD')
+    tc.add_argument('--chain-path', type=Path, default=Path('/run/hf-timestd/timing_chain.json'))
+    tc.add_argument('--out-dir', type=Path, default=None)
+
+    tg = grape_subparsers.add_parser('timing-gate', help='Overclaim gate: published u_epoch vs observed scatter (spec §8)')
+    tg.add_argument('--data-root', type=Path, required=True)
+    tg.add_argument('--date', type=str, required=True, help='YYYYMMDD')
+    tg.add_argument('--history-db', type=str, default='/var/lib/timestd/authority_history.db')
+    tg.add_argument('--json', action='store_true')
+
+    parser._grape_parser = grape_parser
+    return parser
+
+
+def main():
+    parser = build_parser()
+    grape_parser = parser._grape_parser
     args = parser.parse_args()
 
     # CONTRACT §3, hard requirement: inventory/validate must emit ONLY
@@ -400,6 +458,17 @@ def main():
                 packager = DailyDRFPackager(data_root=data_root, station_config=station_config)
                 packager.package_day(date_str)
                 print(f"   ✅ Package complete")
+                # Timing provenance, report-only (TIMING_PROVENANCE_MODEL §3.2, §8):
+                # the day's chain sidecar beside the OBS output, and the
+                # overclaim gate.  Neither may fail the product.
+                try:
+                    from .grape.timing_chain_sidecar import write_day_sidecar
+                    write_day_sidecar(data_root, date_str)
+                    rc = run_timing_gate(data_root, date_str, '/var/lib/timestd/authority_history.db')
+                    print("   overclaim gate: " + (
+                        "OVERCLAIM(S) FOUND — see `hamsci-physics grape timing-gate`" if rc else "clean"))
+                except Exception as exc:  # noqa: BLE001 — provenance never fails the product
+                    print(f"   ⚠️  timing sidecar/gate step failed (continuing): {exc}")
             except Exception as e:
                 print(f"   ❌ Package failed: {e}")
                 print(f"   Aborting — will not upload without valid package")
@@ -663,6 +732,12 @@ def main():
 
             ok = test_psws_connectivity(config)
             sys.exit(0 if ok else 1)
+
+        elif args.grape_command == 'timing-chain':
+            sys.exit(run_timing_chain(args.data_root, args.date, args.chain_path, args.out_dir))
+
+        elif args.grape_command == 'timing-gate':
+            sys.exit(run_timing_gate(args.data_root, args.date, args.history_db, as_json=args.json))
 
         elif args.grape_command == 'status':
             import sqlite3
